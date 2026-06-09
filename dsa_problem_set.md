@@ -1,10 +1,10 @@
 # GOOGLE INTERVIEW PROBLEM SET
 ## Forward Deployed Engineer - Applied AI
-## 25-Day Study Plan: March 22 - April 16, 2026
+## 25-Day Study Plan:
 
 ---
 
-# WEEK 1: FOUNDATIONS (March 22-28)
+# WEEK 1: FOUNDATIONS
 ## Goal: Master fundamentals, build confidence with easy/medium problems
 
 ### Day 1-2: Arrays & Hashing
@@ -68,7 +68,7 @@
 
 ---
 
-# WEEK 2: CORE PATTERNS (March 29 - April 4)
+# WEEK 2: CORE PATTERNS
 ## Goal: Master essential data structures and algorithms
 
 ### Day 8-9: Binary Search
@@ -136,7 +136,7 @@
 
 ---
 
-# WEEK 3: ADVANCED PATTERNS + MOCKS (April 5-11)
+# WEEK 3: ADVANCED PATTERNS + MOCKS
 ## Goal: Handle harder problems, practice under time pressure
 
 ### Day 15-16: Graphs
@@ -206,7 +206,7 @@
 
 ---
 
-# WEEK 4: POLISH & REST (April 12-15)
+# WEEK 4: POLISH & REST
 
 ### Day 22: Review Weak Areas
 - Go through problems you struggled with
