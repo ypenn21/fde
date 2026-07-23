@@ -98,6 +98,7 @@ Focus: Designing intelligent, scalable systems with ML components.
 
 A structured way to cover all topics and be confident in the interview:
 
+* Follow the **Master Study Plan** in _plans/study_plan.md_ - an integrated week-by-week plan across all five rounds
 * Understand various **DSA Python Patterns** using the _python_dsa_patterns.ipynb_ notebook - 80% of DSA is covered there
 * Understand how **Agentic System Design** is built using the _ml_agentic_systems_guide_ attached
 * Practise the **Problem Set** using the _dsa_problem_set_ file
