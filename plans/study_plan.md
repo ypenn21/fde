@@ -65,6 +65,7 @@ Two canonical problems per pattern beats ten. Master these cold; they generalize
 
 - **DSA (daily, ~45 min):** Trees → Heaps → Graphs (core table).
 - **Agentic/ML (2 sessions):** Pillars **3 (Context Optimization / RAG)**, **4 (Guardrails)**, **5 (Evaluation)**. Prepare a 2-minute verbal answer to "How would you design a production agent for \<customer use case\>?" using the "Putting it all together" section.
+- **Tokenomics (1 session, ~40 min):** Read `tokenomics_cost_optimization.md` — memorize the **cost ladder** (right-size → cache → cut tokens → batch → semantic-cache → budgets) and rehearse the **60-second cost answer**. "How do you keep inference costs from skyrocketing at scale?" is a near-guaranteed FDE follow-up; know the three traps (tiktoken, output-token cost, semantic-cache staleness) cold.
 - **Mock #1 (end of week):** 45 min, out loud, no IDE — 1 medium DSA problem + talk through 1 agentic design prompt.
 
 ### Week 4 — DP, Vibe coding, Googleyness
