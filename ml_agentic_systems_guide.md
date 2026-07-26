@@ -325,6 +325,12 @@ def nightly_eval_pipeline():
     regression = detect_regression(metrics, previous_metrics)
     
     # 4. Alert if needed
+    # `regression` is truthy only when detect_regression() found a meaningful
+    # drop vs. the baseline (e.g. success_rate 92% -> 85%); None/empty = all good.
+    # This "closes the loop": the pipeline doesn't just measure quality, it pages
+    # a human (Slack/PagerDuty) so regressions surface from monitoring, not from
+    # angry users. In prod, gate on a threshold (e.g. drop > 3%) to avoid alert
+    # fatigue, and dedupe so the same known issue doesn't page repeatedly.
     if regression:
         send_alert(f"Regression detected: {regression}")
     
