@@ -348,6 +348,221 @@ def nightly_eval_pipeline():
 
 ---
 
+# AGENTIC FRAMEWORK EXPERTISE
+
+> Job requirement: *"Experience implementing multi-agent systems using frameworks
+> (e.g., LangGraph, CrewAI, or Google's ADK) and complex patterns like ReAct,
+> self-reflection, and hierarchical delegation."*
+
+This section tests three things: (1) do you know the **frameworks** and when to reach
+for each, (2) can you implement the **reasoning patterns** that make agents work, and
+(3) have you wrestled with the **production realities** (delegation, state, failure).
+
+---
+
+## The Frameworks
+
+Key mental model: frameworks differ mainly in **abstraction level** — how much control
+they give you vs. how much they do for you.
+
+### LangGraph — state machines for agents
+
+Models an agent as a **graph**: nodes are functions (LLM calls, tools, logic), edges are
+transitions, and a shared **State** object flows through it. Cycles are allowed — that's
+what makes it agentic (loop "think → act → observe" until done).
+
+- **Mental model:** a directed graph with cycles.
+- **Why it wins:** explicit control over flow, built-in persistence/checkpointing (pause,
+  resume, time-travel), native human-in-the-loop via interrupts.
+- **Use when:** you need fine-grained control over control flow, durable state, or human
+  approval steps.
+
+```python
+from langgraph.graph import StateGraph, END
+from typing import TypedDict, Annotated
+import operator
+
+class AgentState(TypedDict):
+    messages: Annotated[list, operator.add]   # reducer: appends
+    next_step: str
+
+def agent_node(state): ...      # calls LLM, decides action
+def tool_node(state): ...       # executes tool
+
+def should_continue(state):     # conditional edge
+    return "tools" if state["next_step"] == "act" else END
+
+graph = StateGraph(AgentState)
+graph.add_node("agent", agent_node)
+graph.add_node("tools", tool_node)
+graph.add_conditional_edges("agent", should_continue)
+graph.add_edge("tools", "agent")            # cycle: back to reasoning
+graph.set_entry_point("agent")
+app = graph.compile(checkpointer=...)        # persistence
+```
+
+**Quotable:** "LangGraph makes the agent's control flow a first-class, inspectable object
+instead of hiding it inside a prompt loop."
+
+### CrewAI — role-based teams
+
+Higher-level. Define **agents with roles** (goal, backstory, tools) and **tasks**, then a
+**Crew** runs them sequentially or hierarchically.
+
+- **Mental model:** a company org chart — each agent is a "coworker" with a job description.
+- **Why it wins:** extremely fast to prototype; role/goal/backstory maps to how humans divide work.
+- **Trade-off:** less control than LangGraph; the "magic" can obscure what's happening.
+
+```python
+from crewai import Agent, Task, Crew, Process
+
+researcher = Agent(role="Researcher", goal="Find accurate data",
+                   backstory="Expert analyst...", tools=[search_tool])
+writer = Agent(role="Writer", goal="Write clear summaries", backstory="...")
+
+crew = Crew(agents=[researcher, writer],
+            tasks=[research_task, write_task],
+            process=Process.hierarchical)    # a manager agent delegates
+```
+
+### Google ADK (Agent Development Kit) — your differentiator
+
+Google's open-source framework (~2025, powers Agentspace / Vertex AI Agent Builder).
+**Given this is a Google FDE role, know this one.**
+
+- **Mental model:** code-first, hierarchical agents that compose. Distinguishes `LlmAgent`
+  (reasoning) from **workflow agents** (`SequentialAgent`, `ParallelAgent`, `LoopAgent`)
+  that give deterministic orchestration.
+- **Selling points:** first-class multi-agent hierarchy, tight Gemini/Vertex integration,
+  built-in evaluation, and the **A2A (Agent-to-Agent) protocol** for cross-agent
+  communication.
+
+```python
+from google.adk.agents import LlmAgent, SequentialAgent
+
+greeter = LlmAgent(name="greeter", model="gemini-2.0-flash", instruction="...")
+executor = LlmAgent(name="executor", model="gemini-2.0-flash", tools=[...])
+pipeline = SequentialAgent(name="root", sub_agents=[greeter, executor])
+```
+
+**Interview move:** "MCP standardizes how agents talk to *tools*; A2A standardizes how
+agents talk to *each other*. ADK is built around both." Signals you're current.
+
+### Framework Comparison
+
+| Framework | Abstraction | Best for | Control |
+|-----------|-------------|----------|---------|
+| LangGraph | Low (graph) | Complex flows, state, HITL | High |
+| CrewAI | High (roles) | Fast prototyping, clear team roles | Low |
+| Google ADK | Medium | Google stack, hierarchical multi-agent | Medium-High |
+| AutoGen | Medium | Conversational multi-agent | Medium |
+
+---
+
+## The Patterns
+
+### ReAct — Reason + Act
+
+The foundational agent loop: LLM alternates **Thought** (reasoning) and **Action** (tool
+call), reads the **Observation**, repeats. Interleaves chain-of-thought with tool use.
+
+```
+Thought: I need the user's order status. I should query the order DB.
+Action: get_order_status(order_id="12345")
+Observation: {"status": "shipped", "eta": "2 days"}
+Thought: I now have what I need.
+Answer: Your order shipped and arrives in ~2 days.
+```
+
+- **Why it matters:** grounds reasoning in real data (reduces hallucination), makes
+  decisions traceable.
+- **Framework mapping:** it's literally the cycle in a LangGraph graph (agent → tool →
+  agent). Modern implementations use native **structured/function-calling** rather than
+  parsing free-text "Action:" strings — more reliable (ties to Pillar 2).
+
+### Self-Reflection — the agent critiques its own work
+
+Agent generates output, a **critic step** evaluates it, corrections feed back. Name-drop:
+**Reflexion** (verbal self-feedback stored in memory) and **Self-Refine** (iterative
+refinement).
+
+```
+Generate → Critique ("Is this correct? What's missing?") → Revise → repeat until good enough
+```
+
+- **Concrete example:** code agent writes code → runs tests → reads failures → fixes. The
+  test output *is* the reflection signal — the strongest kind (grounded, not self-graded).
+- **Watch-out to raise unprompted:** reflection costs tokens/latency and can loop. Cap
+  iterations (circuit breaker — Pillar 4). Reflection grounded in an *external* signal
+  (tests, validators, tool results) beats pure LLM self-judgment, which is overconfident.
+
+### Hierarchical Delegation — manager + workers
+
+A top-level **orchestrator/manager agent** decomposes a task, delegates subtasks to
+**specialist sub-agents**, then synthesizes results. This is Pillar 1 (Modular Orchestration).
+
+```
+                 ┌─────────────┐
+                 │   Manager   │  decomposes & routes
+                 └──────┬──────┘
+        ┌───────────────┼───────────────┐
+        ▼               ▼               ▼
+   Research Agent   Code Agent     Writer Agent
+```
+
+- **Why hierarchical > flat:** each sub-agent gets a clean, focused context (context
+  isolation), you can test/swap them independently, and a specialist prompt beats one
+  giant do-everything prompt.
+- **Key design decisions:**
+  - *Delegation as tool-calling:* manager treats sub-agents as callable tools
+    (`call_research_agent(query)`).
+  - *Context passing:* pass only what each child needs, not the whole history.
+  - *Result aggregation:* manager reconciles/merges outputs (and handles disagreement).
+  - *Failure isolation:* one sub-agent failing shouldn't crash the crew — degrade gracefully.
+
+**Cost reality (worth quoting):** Anthropic's multi-agent research system beat a single
+agent — but at ~15× the token cost. So use multi-agent only when the task truly
+parallelizes or needs separated contexts; a single well-tooled ReAct agent is often
+cheaper and sufficient. This cost-awareness is exactly the pragmatic FDE instinct they want.
+
+---
+
+## What to Say (30-second synthesis)
+
+> "I'd start with the simplest thing that works — usually a single **ReAct** agent with
+> good tools, because multi-agent adds real token and latency cost. When the task genuinely
+> decomposes, I move to **hierarchical delegation**: an orchestrator routing to specialist
+> sub-agents, each with an isolated context. I'd build it in **LangGraph** when I need
+> explicit control over state and human-in-the-loop, or **CrewAI** for fast role-based
+> prototyping — and **ADK** on the Google stack, where A2A and Gemini integration are
+> first-class. For quality, I add **self-reflection** loops grounded in real signals like
+> test results, always bounded by iteration limits. Then it's the production pillars:
+> structured outputs, retries, circuit breakers, and eval against golden datasets."
+
+---
+
+## Questions They Might Ask
+
+1. "When would you NOT use a multi-agent system?"
+   → Sequential/single-context tasks; multi-agent multiplies cost and adds coordination
+   failure modes. Start single-agent, split only when justified.
+
+2. "How do agents pass information in a hierarchy?"
+   → Shared state object (LangGraph) or sub-agent-as-tool with explicit I/O; pass minimal
+   necessary context to keep each window focused.
+
+3. "How do you stop a self-reflection loop from running forever?"
+   → Iteration cap + "good enough" threshold + ground the critique in an external signal
+   so it converges.
+
+4. "LangGraph vs CrewAI?"
+   → Control vs. speed. Graph/state-machine control vs. role-based rapid prototyping.
+
+5. "What's A2A / MCP?"
+   → MCP = agent↔tool standard; A2A = agent↔agent standard. ADK is built around both.
+
+---
+
 # PUTTING IT ALL TOGETHER
 
 **Sample System Design Answer:**
@@ -370,7 +585,8 @@ def nightly_eval_pipeline():
 
 | Category | Tools |
 |----------|-------|
-| Orchestration | LangGraph, LangChain, CrewAI, AutoGen |
+| Orchestration | LangGraph, LangChain, CrewAI, AutoGen, Google ADK |
+| Agent Protocols | MCP (agent↔tool), A2A (agent↔agent) |
 | Vector DBs | Pinecone, Weaviate, Chroma, FAISS, Qdrant |
 | Structured Output | Pydantic, Instructor, OpenAI function calling |
 | Observability | LangSmith, Weights & Biases, Arize |
