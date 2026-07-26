@@ -480,6 +480,52 @@ Answer: Your order shipped and arrives in ~2 days.
   agent). Modern implementations use native **structured/function-calling** rather than
   parsing free-text "Action:" strings — more reliable (ties to Pillar 2).
 
+**"Doesn't the LLM do this automatically?" — the key distinction**
+
+Sort of, but no — and this is exactly the trap that separates people who've *used*
+ChatGPT from people who've *built* agents.
+
+*What the LLM does on its own:* a modern tool-calling model has been trained to produce
+reasoning ("I should look up the order status") **and** emit a structured tool call
+(`get_order_status(order_id="12345")`) instead of hallucinating the answer. So the
+**Thought** and the **Action-proposal** feel automatic. That part is real.
+
+*What the LLM does NOT do:* it cannot actually run the tool. An LLM is a function
+`tokens → tokens` — it has no ability to hit a database, call an API, or execute code.
+When it "calls" a tool, it just outputs a *request* and then **stops**. Something outside
+the model must:
+
+1. **Parse** the tool-call request,
+2. **Execute** the real function,
+3. **Feed the result (Observation) back** into the context,
+4. **Re-invoke** the model so it can continue.
+
+That execute → observe → re-invoke loop, repeated until the model emits a final answer,
+**is** ReAct — and it lives in your harness / the SDK's tool-runner / the framework
+(a LangGraph cycle, CrewAI's executor), **not** inside the LLM.
+
+```
+┌─── the LLM does this ───┐   ┌──── YOU / the framework do this ────┐
+  Thought + tool request  →   parse → run real tool → get result
+         ▲                                                  │
+         └──────────── re-invoke with Observation ──────────┘
+```
+
+- **Why this matters:** the loop is *yours* to control — that's where all the real
+  engineering lives (retries, timeouts, the iteration cap so it doesn't loop forever,
+  error handling when a tool fails). If ReAct were truly automatic inside the LLM, you'd
+  have nowhere to put the guardrails from Pillars 2 and 4.
+- **What actually changed:** early ReAct (2022) had you prompt the model to output literal
+  `Thought:`/`Action:`/`Observation:` text and regex-parse it — brittle. Native
+  function-calling replaced that string-parsing. The *pattern* is the same; the *plumbing*
+  got reliable.
+
+**What to Say:**
+> "The model is trained to emit structured tool calls, but it can't execute anything — it
+> just proposes. My runtime executes the tool, injects the observation back into context,
+> and re-invokes the model. That execute-observe loop is ReAct, and it's where the real
+> engineering lives: retries, timeouts, and the iteration cap so it doesn't loop forever."
+
 ### Self-Reflection — the agent critiques its own work
 
 Agent generates output, a **critic step** evaluates it, corrections feed back. Name-drop:
