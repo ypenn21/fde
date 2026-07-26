@@ -542,6 +542,102 @@ Generate → Critique ("Is this correct? What's missing?") → Revise → repeat
   iterations (circuit breaker — Pillar 4). Reflection grounded in an *external* signal
   (tests, validators, tool results) beats pure LLM self-judgment, which is overconfident.
 
+**ADK implementation — the `LoopAgent` pattern**
+
+ADK maps self-reflection cleanly because it has a **`LoopAgent`** primitive built for
+"keep refining until good enough." Model it as a loop wrapping two sub-agents that talk
+through **session state**: a **Critic** writes feedback, a **Refiner** applies it (or ends
+the loop). An `LlmAgent` writes to state via `output_key`; the next agent reads it by
+templating `{key}` into its instruction.
+
+```
+SequentialAgent (root)
+├── generator            # LlmAgent → writes state["draft"]  (runs once)
+└── LoopAgent(max_iterations=3)          # the reflection loop
+    ├── critic           # reads {draft} → writes state["criticism"]
+    └── refiner          # reads {draft}+{criticism} → rewrites state["draft"]
+                         #   OR calls exit_loop() to stop when good enough
+```
+
+```python
+from google.adk.agents import LlmAgent, LoopAgent, SequentialAgent
+from google.adk.tools.tool_context import ToolContext
+
+# The exit mechanism: a tool that breaks the loop.
+# escalate=True tells the enclosing LoopAgent to stop.
+def exit_loop(tool_context: ToolContext):
+    """Call this ONLY when the draft needs no further changes."""
+    tool_context.actions.escalate = True
+    return {}
+
+generator = LlmAgent(
+    name="generator", model="gemini-2.0-flash",
+    instruction="Write a short marketing blurb for the product the user describes.",
+    output_key="draft",                    # → session.state["draft"]
+)
+
+critic = LlmAgent(
+    name="critic", model="gemini-2.0-flash",
+    instruction=(
+        "You are a strict editor. Review the DRAFT.\n\nDRAFT:\n{draft}\n\n"
+        "If it is clear, accurate, and compelling, respond with exactly: NO CHANGES.\n"
+        "Otherwise, list specific, actionable problems to fix."
+    ),
+    output_key="criticism",                # → session.state["criticism"]
+)
+
+refiner = LlmAgent(
+    name="refiner", model="gemini-2.0-flash",
+    instruction=(
+        "You revise drafts based on feedback.\n\n"
+        "DRAFT:\n{draft}\n\nFEEDBACK:\n{criticism}\n\n"
+        "If the feedback is exactly 'NO CHANGES', call the exit_loop tool and stop.\n"
+        "Otherwise, output the improved draft in full (no commentary)."
+    ),
+    tools=[exit_loop],
+    output_key="draft",                    # overwrites the draft for the next round
+)
+
+reflection_loop = LoopAgent(
+    name="reflection_loop", sub_agents=[critic, refiner],
+    max_iterations=3,                      # circuit breaker — Pillar 4
+)
+root_agent = SequentialAgent(
+    name="self_reflecting_writer", sub_agents=[generator, reflection_loop],
+)
+```
+
+**Why each choice matters:**
+- **State, not arguments.** Each iteration overwrites `state["draft"]`, so the refiner's
+  output *becomes* the next round's input — that's the refinement mechanism.
+- **`escalate=True` is the early-exit.** `LoopAgent` has no native condition hook; the
+  convention is a tiny `exit_loop` tool that escalates. Without it you always burn all
+  `max_iterations`.
+- **`max_iterations` is the circuit breaker** (Pillar 4) — guarantees the loop terminates
+  even if the critic is never satisfied.
+- **Separate critic and refiner on purpose.** One agent grading its own output in a single
+  call tends to rubber-stamp itself; splitting the roles forces genuine critique.
+
+**Grounded variant (stronger):** for code or anything verifiable, replace the LLM critic
+with a tool that actually *runs* something and feeds back the real result — refine until
+tests pass, not until the model *says* it's happy.
+
+```python
+def run_tests(tool_context: ToolContext) -> dict:
+    result = execute_in_sandbox(tool_context.state["draft"])   # real test run
+    tool_context.state["criticism"] = result.failures or "NO CHANGES"
+    if not result.failures:
+        tool_context.actions.escalate = True                   # tests pass → stop
+    return {"passed": not result.failures}
+```
+
+**What to Say:**
+> "In ADK I'd model self-reflection as a `LoopAgent` wrapping a critic and a refiner that
+> communicate through session state. The refiner escalates to exit early when the critic
+> reports no changes, and `max_iterations` caps it as a circuit breaker so it always
+> terminates. For anything verifiable like code, I ground the critique in a real signal —
+> a test run — instead of letting the model grade itself, since self-grading is overconfident."
+
 ### Hierarchical Delegation — manager + workers
 
 A top-level **orchestrator/manager agent** decomposes a task, delegates subtasks to
