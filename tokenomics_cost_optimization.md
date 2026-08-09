@@ -125,6 +125,111 @@ response = client.messages.create(
 - Great fit: chatbots with a fixed persona, RAG over a hot document set, agents re-sending the
   same tool definitions every loop iteration.
 
+**Critical cost driver** A customer deploys your agent to their site, runs it in production, and fires off 1,000 queries. Without caching, they pay 1,000× the "system setup" cost. With caching, they pay it once (plus a small write penalty on session boundaries), then the agent operates cheaply on repeat queries.
+
+Each turn in a multi-turn conversation, the context grows:
+
+```
+Turn 1:
+[system + tools (cached)] + [Query 1] + [Response 1]
+Cost: ~10% input (cache hit on system/tools) + full output
+
+Turn 2:
+[system + tools (cached)] + [Query 1] + [Response 1] + [Query 2] + [Response 2]
+                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+                            All re-sent as input! Not cached.
+Cost: ~10% input (for system/tools) + FULL price for the growing conversation history
+
+Turn 3:
+[system + tools (cached)] + [Query 1] + [Response 1] + [Query 2] + [Response 2] + [Query 3]
+                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+                            Everything above re-sent again. Growing linearly.
+Cost: Gets worse. History balloons.
+
+Turn 100:
+[system + tools (cached)] + [Query 1...Response 99] + [Query 100]
+                            ← Could be 50K+ tokens of accumulated conversation
+```
+
+**This is why the document says (Pillar 3):**
+> "Summarize/compact long agent histories instead of re-sending the full transcript each turn"
+
+---
+
+## The Two Solutions
+
+**1. Extend caching to the conversation history** (best case)
+```python
+# Ideal: mark the accumulated conversation as cacheable too
+response = client.messages.create(
+    model="claude-sonnet-5",
+    system=[{
+        "type": "text",
+        "text": SYSTEM + TOOLS,
+        "cache_control": {"type": "ephemeral"},
+    }],
+    messages=[
+        *past_conversation_turns,  # [Q1, R1, Q2, R2, ...] — all marked cacheable
+        {"role": "user", "content": new_query},
+    ],
+    # Requires: the past_conversation_turns block to be byte-identical AND come before new_query
+)
+# If the history is stable between turns 2→3→4, it caches. But as soon as you add Turn 3's
+# response, the cache busts and you pay full price for everything + write penalty again.
+```
+
+This only works if the conversation history is truly static—which it isn't. Adding each new turn changes the prefix, busting the cache.
+
+**2. Summarize/compact the history** (what production systems do)
+```python
+# From Pillar 3: ContextManager pattern
+class ContextManager:
+    def __init__(self, max_turns=20):
+        self.turns = []
+        self.max_turns = max_turns
+
+    def add_turn(self, query, response):
+        self.turns.append((query, response))
+        if len(self.turns) > self.max_turns:
+            # Compact old turns into a summary
+            old_turns = self.turns[:10]
+            summary = call_model("summarize", old_turns)  # cheap call on Haiku
+            self.turns = [("SUMMARY", summary)] + self.turns[10:]
+
+# Now Turn 100 doesn't re-send 99 turns—it re-sends a ~500-token summary of the first 10,
+# plus the most recent 10 turns in full.
+# Cost grows logarithmically, not linearly.
+```
+
+---
+
+## Real Numbers
+
+```
+Naive approach (re-send everything):
+Turn 1:  system (8K, cached) + query (1K)           = ~1K input cost
+Turn 2:  system (8K, cached) + history (1K+1K) + query (1K)    = ~3K input cost
+Turn 10: system (8K, cached) + history (10K) + query (1K)      = ~11K input cost
+Turn 100: system (8K, cached) + history (100K) + query (1K)    = ~101K input cost
+Total: ~5M input tokens across 100 turns
+
+With history compaction (keep recent 5 turns, summarize older):
+Turn 1:  system (8K, cached) + query (1K)           = ~1K input cost
+Turn 2:  system (8K, cached) + history (2K) + query (1K)       = ~3K input cost
+Turn 10: system (8K, cached) + summary (0.5K) + recent (3K) + query = ~3.5K input cost
+Turn 100: system (8K, cached) + summary (0.5K) + recent (3K) + query = ~3.5K input cost
+Total: ~350K input tokens across 100 turns
+Savings: 93% reduction
+```
+
+---
+
+## Interview Answer
+
+> "Yes, exactly. In a multi-turn conversation, you're re-sending the entire conversation history as input every turn. Turn 100 means you're re-sending 99 turns of context. That's why prompt caching alone isn't enough—the history itself isn't static, so the cache keeps busting.
+>
+> What I do in production is a **ContextManager** that summarizes old turns. I keep, say, the last 5 turns in full and compress everything older into a ~500-token summary. So by Turn 50 the input is bounded: system (cached) + summary (500 tokens) + recent turns (2K) + new query (1K). That's linear cost per turn instead of quadratic, which is the difference between a 100-turn session costing $5 versus $500."
+
 **What to Say:**
 > "The biggest quick win is almost always prompt caching. In a customer deployment the system
 > prompt, tool definitions, and policy docs are identical on every call — often thousands of
@@ -132,6 +237,8 @@ response = client.messages.create(
 > price on every subsequent request. The catch is ordering: stable content has to sit at the
 > front, byte-for-byte identical, with the user's input last. That one change routinely cuts
 > input cost by 80-90% on chat and RAG workloads."
+>
+> 
 
 ---
 
