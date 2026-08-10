@@ -39,26 +39,35 @@ User Query → Router/Orchestrator → Specialized Agent → Tools → Response
 │  API  │ │Sandbox │ │  Call   │
 └───────┘ └────────┘ └─────────┘
 ```
+### Practical comparison: Single-agent ReAct vs 3‑role Subagent Orchestration
 
-Practical comparison: Single-agent ReAct vs 3‑role Subagent Orchestration
-Compare a single monolithic ReAct agent (with history compaction) versus a three‑role subagent orchestration: Architect → Software Engineer → Code Reviewer.
+A short comparison between a single ReAct-style agent (one model loop that reasons and calls tools) and a 3‑role subagent orchestration (Architect → Software Engineer → Code Reviewer, coordinated by a manager).
 
-Single-agent (ReAct + function-calls, compacted history)
+| Aspect | Single-agent (ReAct + function-calls) | 3‑role Subagent Orchestration |
+|---|---:|:---|
+| Flow | One model loop that reasons and calls tools | Manager decomposes tasks → specialist subagents run |
+| Context | Shared conversation; needs compaction for long runs | Bounded context per subtask; easier to keep windows small |
+| Latency & Cost | Lower for short/simple interactions | Higher per-request orchestration overhead |
+| Reliability & Traceability | Harder to isolate failures; needs strong guardrails | Better failure isolation; can run deterministic checks (tests) outside LLM |
+| Best for | Short/simple tasks where latency and token cost dominate | Complex engineering tasks needing correctness, traceability, or multiple expertise levels |
 
-Simpler harness: one model loop that reasons and calls tools.
-Usually lower token overhead for short interactions; minimal orchestration latency.
+Single-agent (when to use)
+- Simpler harness: one model loop that reasons and calls tools.
+- Usually lower token overhead for short interactions and minimal orchestration latency.
+- Risks: context growth over long conversations; may require retries or self-reflection loops.
 
-Risk: grows context for long conversations, may require retries or self-reflection loops.
+Subagent orchestration (when to use)
+- Architect decomposes the problem, Engineer implements, Reviewer verifies (runs tests, lints).
+- Higher per-request orchestration overhead, but bounded context per subtask and better failure isolation.
+- Allows cheaper/smaller models for some roles and deterministic checks outside the LLM.
 
-Subagent orchestration (Architect → Engineer → Reviewer, manager coordinates) Architect runs once to decompose the problem, Engineer implements, Reviewer verifies (can run tests/lints).
-Higher per-request orchestration overhead, but bounded context per subtask and better failure isolation. Allows cheaper/smaller models for some roles and deterministic checks (tests) outside the LLM.
+> Recommendation: Use a single-agent approach for short, latency-sensitive requests. Use hierarchical subagents when the task naturally decomposes (design → implement → verify), correctness is critical, or you want clearer auditability.
 
-*Use single-agent for short/simple tasks where latency and token cost dominate.
+*Practical note:* instrument tokens, iterations, and pass/fail on a golden test to decide empirically — orchestration often reduces cost-per-success for long-running iterative tasks even if raw token count per request is higher.
 
-*Use orchestrated subagents for complex engineering tasks that decompose naturally (design → implement → verify), or when correctness/traceability is critical.
-Practical note: instrument tokens, iterations, and pass/fail on a golden test to decide empirically — orchestration often reduces cost-per-success for long-running, iterative tasks even if raw token count is higher per request.
+![Subagent vs Single-agent](table-subagent-vs-singleagent.png "Table: Subagent vs Single-agent comparison")
 
-![Subagent vs Single-agent](table-subagent-vs-singleagent.png)
+*Accessibility tip:* include descriptive alt text (above) and consider a small caption or link to the full-size image if the figure contains dense text.
 
 **Frameworks:**
 - LangGraph — Graph-based agent orchestration
