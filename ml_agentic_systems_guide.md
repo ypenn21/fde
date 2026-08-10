@@ -40,6 +40,25 @@ User Query → Router/Orchestrator → Specialized Agent → Tools → Response
 └───────┘ └────────┘ └─────────┘
 ```
 
+Practical comparison: Single-agent ReAct vs 3‑role Subagent Orchestration
+Compare a single monolithic ReAct agent (with history compaction) versus a three‑role subagent orchestration: Architect → Software Engineer → Code Reviewer.
+
+Single-agent (ReAct + function-calls, compacted history)
+
+Simpler harness: one model loop that reasons and calls tools.
+Usually lower token overhead for short interactions; minimal orchestration latency.
+
+Risk: grows context for long conversations, may require retries or self-reflection loops.
+
+Subagent orchestration (Architect → Engineer → Reviewer, manager coordinates) Architect runs once to decompose the problem, Engineer implements, Reviewer verifies (can run tests/lints).
+Higher per-request orchestration overhead, but bounded context per subtask and better failure isolation. Allows cheaper/smaller models for some roles and deterministic checks (tests) outside the LLM.
+
+*Use single-agent for short/simple tasks where latency and token cost dominate.
+
+*Use orchestrated subagents for complex engineering tasks that decompose naturally (design → implement → verify), or when correctness/traceability is critical.
+Practical note: instrument tokens, iterations, and pass/fail on a golden test to decide empirically — orchestration often reduces cost-per-success for long-running, iterative tasks even if raw token count is higher per request.
+
+
 **Frameworks:**
 - LangGraph — Graph-based agent orchestration
 - CrewAI — Role-based multi-agent framework
