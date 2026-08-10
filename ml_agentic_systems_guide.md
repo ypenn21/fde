@@ -58,6 +58,7 @@ Higher per-request orchestration overhead, but bounded context per subtask and b
 *Use orchestrated subagents for complex engineering tasks that decompose naturally (design → implement → verify), or when correctness/traceability is critical.
 Practical note: instrument tokens, iterations, and pass/fail on a golden test to decide empirically — orchestration often reduces cost-per-success for long-running, iterative tasks even if raw token count is higher per request.
 
+![Subagent vs Single-agent](table-subagent-vs-singleagent.png)
 
 **Frameworks:**
 - LangGraph — Graph-based agent orchestration
